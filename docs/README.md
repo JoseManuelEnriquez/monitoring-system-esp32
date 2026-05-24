@@ -75,7 +75,7 @@ Eclipse Mosquitto was chosen as the broker for its minimal memory footprint — 
 | Setup error | 🔴 Red | `25` | Wi-Fi or MQTT not configured |
 | Connected | 🟢 Green | `17` | Wi-Fi + MQTT ready |
 
-![Circuit diagram](docs/img/circuito.png)
+![Circuit diagram](img/circuito.png)
 
 ---
 
@@ -103,7 +103,7 @@ Topic pattern: `<device_type>/<device_id>/<category>/<subcategory>`
 
 > ⚠️ Minimum sampling interval: **2000 ms**
 
-![Communication diagram](docs/img/Comunicaciones.png)
+![Communication diagram](img/Comunicaciones.png)
 
 ---
 
