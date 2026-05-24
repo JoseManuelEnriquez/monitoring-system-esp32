@@ -1,92 +1,179 @@
-# 📊 Monitoring system using ESP32
-![C++](https://img.shields.io/badge/Code-C++-informational?style=flat&logo=c%2B%2B&logoColor=white&color=00599C)
-![ESP32](https://img.shields.io/badge/Hardware-ESP32-red)
-![MQTT](https://img.shields.io/badge/Protocol-MQTT-blue)
+# 📊 ESP32 IoT Monitoring System
 
-## 📖 System Description
-This project is a real-time IoT monitoring system powered by an **ESP32** microcontroller. It uses the **MQTT protocol** to transmit temperature, humidity, and light intensity data to a centralized dashboard.
+[![C](https://img.shields.io/badge/Language-C-00599C?style=flat-square&logo=c)](https://github.com/JoseManuelEnriquez/monitoring-system-esp32)
+[![ESP32](https://img.shields.io/badge/Hardware-ESP32-E7352C?style=flat-square&logo=espressif)](https://github.com/JoseManuelEnriquez/monitoring-system-esp32)
+[![ESP-IDF](https://img.shields.io/badge/Framework-ESP--IDF-blue?style=flat-square)](https://github.com/JoseManuelEnriquez/monitoring-system-esp32)
+[![FreeRTOS](https://img.shields.io/badge/RTOS-FreeRTOS-green?style=flat-square)](https://github.com/JoseManuelEnriquez/monitoring-system-esp32)
+[![MQTT](https://img.shields.io/badge/Protocol-MQTT-3C3C3C?style=flat-square&logo=mqtt&logoColor=white)](https://github.com/JoseManuelEnriquez/monitoring-system-esp32)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 
-The main goal is to provide an efficient, robust, and low-power solution for environmental monitoring.
-##  📡 Architecture 
-### 💻 Firmware 
-The firmware is built on top of **FreeRTOS**, leveraging task management to implement a **Finite State Machine (FSM)**. This FSM has three distinct modes of operation:
+A real-time IoT environmental monitoring system built on an **ESP32** microcontroller. The firmware — written in C with **ESP-IDF** and **FreeRTOS** — implements a **Finite State Machine** to manage three operating modes: active data acquisition, configuration, and deep sleep. Sensor telemetry is published over **MQTT** to a **Node-RED** dashboard.
 
-- ⚡ **Performance (Active Mode):** In this mode, the ESP32 executes a periodic task that acquires data from the DHT11 (temperature/humidity) and LDR (light) sensors. This telemetry is serialized and published via MQTT to the broker. (Details on the MQTT topics can be found in the "MQTT Configuration" section).
-- ⚙️ **Configuration:** In this mode, all system parameters can be modified and configured.
-- 💤 **Sleep:** Stops sensor data collection while keeping the Wi-Fi connection alive to respond to incoming MQTT commands.
+---
 
-### 🔌 Hardware & Pinout Configuration
-The system connects sensors, actuators, and controls to the ESP32 as follows:
+## 📐 System Architecture
 
-#### 🟢 Status Indicators (Outputs)
-Visual feedback for the Finite State Machine (FSM) modes.
-| Component | Color | ESP32 Pin | Function |
-| :--- | :--- | :---: | :--- |
-| **Performance LED** | 🟢 Green | `GPIO 21` | Indicates the system is active and publishing MQTT data. |
-| **Config LED** | 🟡 Yellow | `GPIO 22` | Indicates the system is in Configuration mode. |
-| **Sleep LED** | 🔴 Red | `GPIO 23` | Brief indicator before entering/during Deep Sleep. |
-| **Configuration LED** | 🔴 Red | `GPIO 25` | when Wi-Fi/MQTT setup is incomplete or pending. |
-| **Connection LED** | 🟢 Green | `GPIO 17` | when Wi-Fi/MQTT setup is ready. |
+```
+┌─────────────────────┐        MQTT (Wi-Fi)        ┌──────────────────────┐
+│     ESP32 Firmware  │ ─────────────────────────► │  Mosquitto Broker    │
+│                     │                             │  (Eclipse, local)    │
+│  FreeRTOS Tasks     │ ◄───────────────────────── │                      │
+│  └─ FSM             │      Commands / Config      └──────────┬───────────┘
+│  └─ Sensor Task     │                                        │
+│  └─ MQTT Task       │                             ┌──────────▼───────────┐
+│                     │                             │   Node-RED Dashboard │
+│  Sensors            │                             │   (Real-time charts) │
+│  └─ DHT11 (temp/hum)│                             └──────────────────────┘
+│  └─ LDR (light)     │
+└─────────────────────┘
+```
 
-#### 🕹️ Controls & Sensors (Inputs)
-Peripherals for data acquisition and state management.
+---
 
-| Component | Type | ESP32 Pin | Function |
-| :--- | :--- | :---: | :--- |
-| **DHT11** | Sensor | `GPIO 18` | Temperature & Humidity data acquisition. |
-| **LDR** | Sensor | `GPIO 19` | Light intensity detection. |
-| **Mode/Wake Button** | Push Button | `GPIO 26` | **1.** Toggles between Performance/Config modes.<br>**2.** Triggers **External Wake-up** from Deep Sleep. |
-| **Sleep Button** | Push Button | `GPIO 27` | Forces the system into Deep Sleep mode immediately. |
+## 🧠 Firmware Design
 
-![Descripción de la imagen](img/circuito.png)
+### Why FreeRTOS?
 
-### ☁️ MQTT Configuration
+A bare `while(1)` loop would block on sensor reads and MQTT I/O, making it impossible to respond to incoming commands without missing data. FreeRTOS allows each concern — sensor acquisition, MQTT publishing, and command handling — to run as an independent task, scheduled cooperatively with clear priorities. This keeps the system responsive even under poor network conditions.
 
-Eclipse Mosquitto is the open-source broker used for the communications. It was chosen for its lightweight architecture, making it highly suitable for IoT messaging involving low-power sensors, embedded computers, and microcontrollers like the ESP32. 
+### Finite State Machine (FSM)
 
-To ensure security, anonymous access is disabled, and connections are authenticated via a pre-defined username and password list.
+The system operates in one of three states, managed by a FreeRTOS task:
 
-![Descripción de la imagen](img/Comunicaciones.png)
+| State | LED | Behaviour |
+|---|---|---|
+| ⚡ **Performance** | 🟢 Green (GPIO 21) | Reads sensors periodically and publishes telemetry via MQTT |
+| ⚙️ **Configuration** | 🟡 Yellow (GPIO 22) | Accepts parameter changes (e.g. sampling delay) via MQTT |
+| 💤 **Sleep** | 🔴 Red (GPIO 23) | Pauses acquisition; Wi-Fi stays alive to receive wake commands |
 
-#### 🗂️ MQTT Topic Hierarchy
+State transitions are triggered by physical buttons (GPIO 26 / 27) or MQTT commands from the broker.
 
-The project follows a strict hierarchical topic pattern to organize data flow:
-* **Patern:** `<device_type>/<device_id>/<category>/<subcategory>`
+### Why Mosquitto?
 
-##### 📡 Telemetry (Publish)
-Data sent **FROM** the ESP32 **TO** the Broker.
+Eclipse Mosquitto was chosen as the broker for its minimal memory footprint — ideal for local deployments alongside the ESP32. Anonymous access is disabled; all connections require credentials defined in a pre-configured user list.
 
-| Metric | Example topic | Payload Type | Description |
-| :--- | :--- | :---: | :--- |
-| **Temperature** | `ESP32/"id"/telemetry/temperature` | `Int` | Ambient temperature from DHT11 (°C). |
-| **Humidity** | `ESP32/"id"/telemetry/humidity` | `Int` | Relative humidity percentage (%). |
-| **Light Level** | `ESP32/"id"/telemetry/light` | `Bool` | LDR sensor value. |
-| **Error** | `ESP32/"id"/error` | `json: {error:"error description"}` | Reports sensor failures o bad configurations. |
+---
 
-##### ⚙️ Configuration & Commands (Subscribe)
-Commands sent **FROM** the Broker **TO** the ESP32.
+## 🔌 Hardware & Pinout
 
-| Command | Topic Suffix | Payload | Action |
-| :--- | :--- | :--- | :--- |
-| **Force Sleep** | `.../config/OFF` | `none` | Forces the device into Sleep immediately. |
-| **Performance Mode** | `.../config/ON` | `none` |  Force the device into performance mode. |
-| **Configuration Mode** | `.../config/CONFIG` | `none` | Force the device into configuration mode. |
-| **Delay configuration** | `.../config/delay` | `json: {delay:value}` | Defines the time delay between sensor data acquisitions (unit: ms).
+### Sensors & Controls (Inputs)
 
-> **Note:** The minimum sensor reading interval is 2 seconds.
+| Component | Type | GPIO | Description |
+|---|---|---|---|
+| DHT11 | Sensor | `18` | Temperature & relative humidity |
+| LDR | Sensor | `19` | Ambient light intensity |
+| Mode / Wake button | Push button | `26` | Toggle Performance ↔ Config; wake from Deep Sleep |
+| Sleep button | Push button | `27` | Force immediate Deep Sleep |
 
-## 🛠️ Tools & Technologies 
+### Status LEDs (Outputs)
 
-This project was developed using the official Espressif framework within VS Code.
+| LED | Color | GPIO | Meaning |
+|---|---|---|---|
+| Performance | 🟢 Green | `21` | System active, publishing data |
+| Config | 🟡 Yellow | `22` | Configuration mode active |
+| Sleep | 🔴 Red | `23` | Entering / in Deep Sleep |
+| Setup error | 🔴 Red | `25` | Wi-Fi or MQTT not configured |
+| Connected | 🟢 Green | `17` | Wi-Fi + MQTT ready |
 
-### 📚 Dependencies 
-- Framework ESP-IDF
-- External Librarie DHT11: API for the DHT11 sensor
-- External Librarie Frozen: A lightweight JSON parser/generator used for serializing telemetry data to send via MQTT.
-- freeRTOS
+![Circuit diagram](docs/img/circuito.png)
 
-## 🚀 Demo
+---
 
-See the project in action:
+## ☁️ MQTT Topics
 
-https://github.com/user-attachments/assets/1468c1e0-405c-44dc-9d9b-48d370249971
+Topic pattern: `<device_type>/<device_id>/<category>/<subcategory>`
+
+### Telemetry — ESP32 → Broker
+
+| Metric | Topic | Payload | Unit |
+|---|---|---|---|
+| Temperature | `ESP32/{id}/telemetry/temperature` | `int` | °C |
+| Humidity | `ESP32/{id}/telemetry/humidity` | `int` | % |
+| Light | `ESP32/{id}/telemetry/light` | `bool` | — |
+| Error | `ESP32/{id}/error` | `{"error": "description"}` | — |
+
+### Commands — Broker → ESP32
+
+| Command | Topic | Payload |
+|---|---|---|
+| Force Sleep | `ESP32/{id}/config/OFF` | — |
+| Performance mode | `ESP32/{id}/config/ON` | — |
+| Configuration mode | `ESP32/{id}/config/CONFIG` | — |
+| Set sampling delay | `ESP32/{id}/config/delay` | `{"delay": <ms>}` |
+
+> ⚠️ Minimum sampling interval: **2000 ms**
+
+![Communication diagram](docs/img/Comunicaciones.png)
+
+---
+
+## 📁 Project Structure
+
+```
+monitoring-system-esp32/
+├── firmware/
+│   └── esp32-circuit/       # ESP-IDF project (main firmware)
+├── dashboard/               # Node-RED flow export
+├── docs/
+│   └── img/                 # Circuit & communication diagrams
+└── README.md
+```
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- [ESP-IDF v5.x](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/)
+- [Mosquitto MQTT broker](https://mosquitto.org/download/)
+- [Node-RED](https://nodered.org/docs/getting-started/)
+
+### Firmware setup
+
+```bash
+# Clone the repository
+git clone https://github.com/JoseManuelEnriquez/monitoring-system-esp32.git
+cd monitoring-system-esp32/firmware/esp32-circuit
+
+# Configure Wi-Fi credentials and MQTT broker address
+idf.py menuconfig
+
+# Build and flash
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+### Broker setup
+
+```bash
+# Start Mosquitto with authentication
+mosquitto -c mosquitto.conf
+```
+
+### Dashboard
+
+Import the flow from `dashboard/` into your Node-RED instance and point the MQTT nodes to your broker address.
+
+---
+
+## 🎬 Demo
+
+https://github.com/JoseManuelEnriquez/monitoring-system-esp32/assets/127325503/1468c1e0-405c-44dc-9d9b-48d370249971
+
+---
+
+## 🛠️ Dependencies
+
+| Library | Purpose |
+|---|---|
+| ESP-IDF | Official Espressif framework |
+| FreeRTOS | Task scheduling & synchronisation |
+| DHT11 driver | Sensor abstraction layer |
+| Frozen | Lightweight JSON serialiser for MQTT payloads |
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
